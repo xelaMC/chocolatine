@@ -80,7 +80,7 @@ jobs:
               exit 1
           fi
           exit 0
-  run_tests: pushswap
+  run_tests:
     needs: check_program_compilation
     runs-on: ubuntu-latest
     name: Checks if the repository got all the executables
