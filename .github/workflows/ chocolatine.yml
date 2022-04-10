@@ -1,0 +1,122 @@
+name: Push to Github
+on:
+  push:
+    branches-ignore:
+      - 'ga-ignore-*'
+  pull_request:
+    branches-ignore:
+      - 'ga-ignore-*'
+env :
+  MIRROR_URL: git@github.com:EpitechPromo2026/B-DOP-200-NCE-2-1-chocolatine-alexandre.macia.git
+  EXECUTABLES: "push_swap"
+  MAKE_PATH: pushswap
+  REPO_NAME: ${{ github.event.repository.name }}
+jobs:
+  check_repository_cleanliness:
+    runs-on: ubuntu-latest
+    name: Checks if the repository is clean and void of any unwanted files (temp files, binary files, etc.)
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+      - name: Checks if the repository is clean and void of any unwanted files (temp files, binary files, etc.)
+        run: |
+          i=0
+          for file in $(find . -type f \( -name "#*#" -o -name "*-" -o -iname "*pain_au_chocolat*" -o -name "*.a" -o -name "*.a" -o -name "*.so" -o -name "*.gcno" -o -name "*.gcda" -o -name "*.gcov" -o -wholename "*tmp/*" \))
+          do
+            i=$((i + 1))
+            echo "::error file=$file,title="Unwanted file detected"::$file"
+          done
+          if [ $i -gt 0 ]
+          then
+            exit 1
+          fi
+          exit 0
+  check_program_compilation:
+    needs: check_repository_cleanliness
+    runs-on : ubuntu-latest
+    container:
+      image: epitechcontent/epitest-docker:latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+      - name: Makefile compilation
+        run: |
+          cd /__w/$REPO_NAME/$REPO_NAME/$MAKE_PATH
+          my_timeout () {
+            trap -- "" SIGTERM
+            child=$!
+            timeout=$1
+            (
+                    sleep $timeout
+                    echo "::error file=Makefile,title="Makefile timed out"::Makefile"
+                    kill $child
+                    exit 1
+            ) &
+            wait $child
+          }
+          make & my_timeout 120
+          exit 0
+      - name: Make clean
+        run: |
+          cd /__w/$REPO_NAME/$REPO_NAME/$MAKE_PATH
+          make clean
+      - name : Checking if all executables are compiled
+        run: |
+          IFS=','
+          FILENAME=($EXECUTABLES)
+          valid=1
+          for i in ${FILENAME[@]}
+          do
+              if find -type f -name $i -exec false {} +
+              then
+                  echo "::error file=$i,title="Executable not found"::$i"
+                  valid=0
+              fi
+          done
+          if [ $valid -eq 0 ]
+          then
+              exit 1
+          fi
+          exit 0
+  run_tests: pushswap
+    needs: check_program_compilation
+    runs-on: ubuntu-latest
+    name: Checks if the repository got all the executables
+    container: epitechcontent/epitest-docker:latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+      - name: Running tests
+        run: |
+          my_timeout () {
+            trap -- "" SIGTERM
+            child=$!
+            timeout=$1
+            (
+                    sleep $timeout
+                    echo "::error file=Makefile,title="Makefile timed out"::Makefile"
+                    kill $child
+                    exit 1
+            ) &
+            wait $child
+          }
+          cd /__w/$REPO_NAME/$REPO_NAME/$MAKE_PATH
+          make tests_run & my_timeout 120 
+          exit 0
+  push_to_mirror:
+    needs: run_tests
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          target_repo_url:
+            ${{ env.MIRROR_URL }}
+          ssh_private_key:
+            ${{ secrets.GIT_SSH_PRIVATE_KEY }}
